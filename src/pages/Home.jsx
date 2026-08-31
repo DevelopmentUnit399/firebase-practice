@@ -8,7 +8,6 @@ const Home = ({
             createPost,
             openAuthModal
         }) => {
-      const [authModalType, setAuthModalType] = useState(null) // 'login' | 'register' | null
 
     useEffect(() => {
         document.title = 'Firebase Test'
