@@ -2,12 +2,15 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+    deleteUser,
     multiFactor,
     PhoneAuthProvider,
     PhoneMultiFactorGenerator,
     RecaptchaVerifier,
     sendEmailVerification
 } from 'firebase/auth'
+import { collection, query, where, getDocs, deleteDoc, writeBatch, doc } from 'firebase/firestore'
+import { db } from '../firebase/init'
 import { auth } from '../firebase/init'
 import emailIcon from '../assets/email-icon.png'
 import googleIcon from '../assets/google-icon.png'
@@ -16,6 +19,8 @@ import facebookIcon from '../assets/facebook-icon.png'
 const Account = ({ user, loading }) => {
     const navigate = useNavigate()
     const [showMfaModal, setShowMfaModal] = useState(false)
+    const [showDeleteModal, setShowDeleteModal] = useState(false)
+    const [isDeleting, setIsDeleting] = useState(false)
     const [phoneNumber, setPhoneNumber] = useState('')
     const [verificationCode, setVerificationCode] = useState('')
     const [verificationId, setVerificationId] = useState(null)
@@ -27,7 +32,6 @@ const Account = ({ user, loading }) => {
         document.title = 'Account - Firebase Test'
     }, [])
 
-    // Function to check enrolled factors directly from currentUser
     const checkMfaStatus = () => {
         if (auth.currentUser) {
             const factors = multiFactor(auth.currentUser).enrolledFactors || []
@@ -37,12 +41,10 @@ const Account = ({ user, loading }) => {
         }
     }
 
-    // Sync on mount and whenever user changes
     useEffect(() => {
         checkMfaStatus()
     }, [user])
 
-    // Map provider IDs to image icons and readable labels
     const getProviderIcons = () => {
         if (!user?.providerData || user.providerData.length === 0) {
             return [{ id: 'password', name: 'Email / Password', icon: emailIcon }]
@@ -100,7 +102,6 @@ const Account = ({ user, loading }) => {
             const enrolled = multiFactor(auth.currentUser).enrolledFactors
             if (enrolled.length === 0) return
 
-            // Unenroll the first enrolled second factor (SMS)
             await multiFactor(auth.currentUser).unenroll(enrolled[0])
             checkMfaStatus()
             setStatusMessage('Two-factor authentication has been disabled.')
@@ -113,7 +114,6 @@ const Account = ({ user, loading }) => {
         }
     }
 
-    // Step 1: Send SMS code
     const handleSendEnrollmentCode = async () => {
         setStatusMessage('')
         if (!phoneNumber.trim()) {
@@ -141,7 +141,6 @@ const Account = ({ user, loading }) => {
             await window.recaptchaVerifier.render()
 
             const session = await multiFactor(auth.currentUser).getSession()
-
             const digitsOnly = phoneNumber.replace(/\D/g, '')
             const formattedPhone = digitsOnly.startsWith('1')
                 ? `+${digitsOnly}`
@@ -174,7 +173,6 @@ const Account = ({ user, loading }) => {
         }
     }
 
-    // Step 2: Confirm verification code
     const handleVerifyEnrollmentCode = async () => {
         setStatusMessage('')
         if (!verificationCode.trim()) {
@@ -194,6 +192,40 @@ const Account = ({ user, loading }) => {
             }, 1500)
         } catch (error) {
             setStatusMessage(error.message)
+        }
+    }
+
+    // Account Deletion Handler
+    const handleDeleteAccount = async () => {
+    setStatusMessage('')
+    setIsDeleting(true)
+        try {
+            const currentUid = auth.currentUser.uid
+
+            // 1. Query all posts matching the current user's UID
+            const postsRef = collection(db, 'posts')
+            const q = query(postsRef, where('uid', '==', currentUid))
+            const querySnapshot = await getDocs(q)
+
+            // 2. Delete each post document from Firestore
+            const deletePromises = querySnapshot.docs.map((docSnap) => 
+                deleteDoc(doc(db, 'posts', docSnap.id))
+            )
+            await Promise.all(deletePromises)
+
+            // 3. Delete the user from Firebase Authentication
+            await deleteUser(auth.currentUser)
+            setShowDeleteModal(false)
+            navigate('/')
+        } catch (error) {
+            setShowDeleteModal(false)
+            if (error.code === 'auth/requires-recent-login') {
+                setStatusMessage('For security, please log out and log back in before deleting your account.')
+            } else {
+                setStatusMessage(error.message)
+            }
+        } finally {
+            setIsDeleting(false)
         }
     }
 
@@ -298,6 +330,26 @@ const Account = ({ user, loading }) => {
                         )}
                     </div>
 
+                    {/* Danger Zone Section */}
+                    <div className="account__section account__section--danger">
+                        <p className="input__title--text danger__title">Danger Zone</p>
+                        <div className="account__status-row">
+                            <p className="danger__description">
+                                Permanently delete your account and all associated authentication data.
+                            </p>
+                            {loading ? (
+                                <div className="skeleton skeleton__delete-btn"></div>
+                            ) : (
+                                <button 
+                                className="btn btn__small btn__danger"
+                                onClick={() => setShowDeleteModal(true)}
+                            >
+                                Delete Account
+                            </button>
+                            )}
+                        </div>
+                    </div>
+
                     {statusMessage && !showMfaModal && (
                         <p style={{ marginTop: '8px', color: statusMessage.includes('disabled') ? '#2ecc71' : '#e74c3c' }}>
                             {statusMessage}
@@ -305,6 +357,37 @@ const Account = ({ user, loading }) => {
                     )}
                 </div>
             </div>
+
+            {/* DELETE ACCOUNT CONFIRMATION MODAL */}
+            {showDeleteModal && (
+                <div className="modal__backdrop" onClick={() => !isDeleting && setShowDeleteModal(false)}>
+                    <div className="modal__box" onClick={(e) => e.stopPropagation()}>
+                        <h2 style={{ color: '#e74c3c' }}>Delete Account</h2>
+                        <p style={{ color: '#555', fontSize: '15px' }}>
+                            Are you sure you want to delete your account? This action is <strong>permanent</strong> and cannot be undone.
+                        </p>
+
+                        <div className="modal__actions">
+                            <button 
+                                type="button" 
+                                className="btn__cancel" 
+                                onClick={() => setShowDeleteModal(false)}
+                                disabled={isDeleting}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="button" 
+                                className="btn btn__danger" 
+                                onClick={handleDeleteAccount}
+                                disabled={isDeleting}
+                            >
+                                {isDeleting ? 'Deleting...' : 'Yes, Delete Account'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* MFA ENROLLMENT MODAL */}
             {showMfaModal && (

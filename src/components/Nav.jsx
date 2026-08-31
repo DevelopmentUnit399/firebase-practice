@@ -5,7 +5,8 @@ import {
   PhoneAuthProvider,
   PhoneMultiFactorGenerator,
   RecaptchaVerifier,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  sendEmailVerification
 } from 'firebase/auth'
 import { auth } from '../firebase/init'
 import { useNavigate } from 'react-router-dom';
@@ -260,13 +261,26 @@ const Nav = ({
               <div className="nav__bar__loading--btn skeleton"></div>
             </div>
           ) : user?.email ? (
-            <div className="nav__bar--account" onClick={() => setShowAccountModal(true)}>
+            <div className="nav__account--wrapper">
+              {!user.emailVerified && (
+                <div
+                  className="nav__unverified--pill"
+                  onClick={() => navigate('/account')}
+                  title="Click to visit account settings and verify your email"
+                >
+                  <span className="unverified__dot"></span>
+                  <span className="unverified__text">Verify Email</span>
+                </div>
+              )}
+
+              <div className="nav__bar--account" onClick={() => setShowAccountModal(true)}>
               <div className="nav__bar--account-background">
                 <p className="nav__bar--icon btn">
                   {user.email[0].toUpperCase()}
                 </p>
               </div>
             </div>
+          </div>
           ) : (
             <div className="nav__bar--no-account">
               <button className="nav__bar--login btn" onClick={() => openAuthModal('login')}>
