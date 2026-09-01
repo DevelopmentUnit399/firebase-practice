@@ -599,3 +599,9 @@ LOGIN BUTTONG
 .btn__google--image-only:active {
     transform: scale(0.98)
 }
+
+@media (max-width: 610px) {
+    .nav__bar--img {
+        font-size: 30px;
+    }
+}
